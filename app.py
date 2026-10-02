@@ -36,6 +36,27 @@ def setup_fonts():
     else:
         return "Helvetica", "Helvetica-Bold"
 
+def get_valid_stamp_image():
+    """Overí a vráti platný objekt pečiatky v pamäti bez rizika pádu PIL."""
+    candidates = [
+        "peciatka.png", "peciatka.PNG", "peciatka.jpg", 
+        "peciatka.jpeg", "pečiatka.png", "podpis.png"
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with Image.open(path) as img:
+                    img.verify()  # Overenie formátu súboru
+                # Načítanie do pamäťového streamu pre ReportLab
+                with Image.open(path) as img:
+                    img_bytes = io.BytesIO()
+                    img.convert("RGBA").save(img_bytes, format="PNG")
+                    img_bytes.seek(0)
+                    return img_bytes
+            except Exception:
+                continue
+    return None
+
 def extract_signature_image(canvas_result, width=340, height=140):
     if canvas_result is None:
         return None
@@ -251,20 +272,19 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
     story.append(Spacer(1, 8))
 
-    # --- Sekcia Príkazcu (Pečiatka a podpis) ---
+    # Bezpečné osadenie pečiatky Príkazcu
     prikazca_cell = []
     prikazca_cell.append(Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.", party_style))
     
-    # Ak v priečinku existuje súbor peciatka.png, vloží sa automaticky nad riadok
-    stamp_path = "peciatka.png"
-    if os.path.exists(stamp_path):
+    stamp_stream = get_valid_stamp_image()
+    if stamp_stream:
         prikazca_cell.append(Spacer(1, 2))
-        prikazca_cell.append(ReportLabImage(stamp_path, width=125, height=50))
+        prikazca_cell.append(ReportLabImage(stamp_stream, width=125, height=50))
         prikazca_cell.append(Paragraph("____________________________________<br/>Denis Beňa – konateľ", party_style))
     else:
         prikazca_cell.append(Paragraph("<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style))
 
-    # --- Sekcia Príkazníka (Podpis kuriéra) ---
+    # Osadenie podpisu Príkazníka
     prikaznik_signature_cell = []
     prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
     
@@ -354,6 +374,21 @@ else:
     st.title("📄 Príprava zmluvy na podpis")
     st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
+    # Kontrola a správa pečiatky priamo v paneli správcu
+    stamp_ok = get_valid_stamp_image() is not None
+    if stamp_ok:
+        st.success("✅ Pečiatka a podpis konateľa sú aktívne a pripravené na vkladanie do PDF.")
+    else:
+        st.warning("⚠️ Pečiatka Príkazcu zatiaľ nie je nahraná (alebo je súbor poškodený). Môžete ju nahrať nižšie.")
+
+    with st.expander("🛠️ Nahrať / Aktualizovať pečiatku spoločnosti"):
+        uploaded_stamp = st.file_uploader("Vyberte obrázok pečiatky (PNG alebo JPG)", type=["png", "jpg", "jpeg"])
+        if uploaded_stamp is not None:
+            with open("peciatka.png", "wb") as f:
+                f.write(uploaded_stamp.getbuffer())
+            st.success("🎉 Pečiatka bola úspešne uložená! Odteraz sa automaticky vkladá do všetkých zmlúv.")
+            st.rerun()
+
     with st.form("contract_form"):
         st.subheader("Údaje nového kuriéra")
         meno = st.text_input("Meno a priezvisko *", placeholder="napr. Artem Diachuk")
@@ -415,6 +450,5 @@ else:
             st.markdown(f'<a href="{wa_link}" target="_blank" style="display:inline-block;padding:10px 15px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;width:100%;">💬 Odoslať kuriérovi priamo cez WhatsApp</a>', unsafe_allow_html=True)
             
             st.divider()
-            st.caption("Prípadne si môžete stiahnuť čistú zmluvu s vašou pečiatkou:")
             ciste_pdf = generate_pdf(data)
-            st.download_button("📄 Stiahnuť PDF s pečiatkou", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
+            st.download_button("📄 Stiahnuť vygenerované PDF", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
