@@ -1,24 +1,26 @@
 import io
 import os
+import json
+import base64
+import urllib.parse
 import streamlit as st
 from datetime import datetime
+from PIL import Image
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from streamlit_drawable_canvas import st_canvas
 
-st.set_page_config(page_title="Generátor zmluvy TRANSOCEANIC", page_icon="📄", layout="centered")
+st.set_page_config(page_title="Zmluvy TRANSOCEANIC", page_icon="📄", layout="centered")
 
 @st.cache_resource
 def setup_fonts():
-    # Cesty k fontom s plnou podporou slovenskej diakritiky (č, š, ž, ť, ď, ň, ľ, ô)
-    # Na Linuxe (Streamlit Cloud):
     linux_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     linux_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    
-    # Na Macu:
     mac_reg = "/System/Library/Fonts/Supplemental/Arial.ttf"
     mac_bold = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 
@@ -33,9 +35,8 @@ def setup_fonts():
     else:
         return "Helvetica", "Helvetica-Bold"
 
-def generate_pdf(data):
+def generate_pdf(data, signature_image=None):
     font_regular, font_bold = setup_fonts()
-
     pdf_buffer = io.BytesIO()
 
     doc = SimpleDocTemplate(
@@ -84,10 +85,7 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
 <i>(ďalej len „Príkazník“)</i>
 """
 
-    parties_table = Table(
-        [[Paragraph(prikazca_text, party_style), Paragraph(prikaznik_text, party_style)]],
-        colWidths=[260, 260]
-    )
+    parties_table = Table([[Paragraph(prikazca_text, party_style), Paragraph(prikaznik_text, party_style)]], colWidths=[260, 260])
     parties_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0), (-1,-1), 2),
@@ -196,11 +194,25 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
     story.append(Spacer(1, 8))
 
+    # Sekcia podpisu s vloženým prstovým podpisom
+    prikaznik_signature_cell = []
+    prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
+    
+    if signature_image:
+        img_buffer = io.BytesIO()
+        signature_image.save(img_buffer, format="PNG")
+        img_buffer.seek(0)
+        prikaznik_signature_cell.append(Spacer(1, 4))
+        prikaznik_signature_cell.append(ReportLabImage(img_buffer, width=130, height=45))
+        prikaznik_signature_cell.append(Paragraph(f"____________________________________<br/>{data['meno']}", party_style))
+    else:
+        prikaznik_signature_cell.append(Paragraph(f"<br/><br/><br/>____________________________________<br/>{data['meno']}", party_style))
+
     podpisy_table = Table(
         [
             [
                 Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style),
-                Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}<br/><br/><br/>____________________________________<br/>{data['meno']}", party_style)
+                prikaznik_signature_cell
             ]
         ],
         colWidths=[260, 260]
@@ -217,63 +229,137 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.title("📄 Generátor Príkaznej zmluvy")
-st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
+# --- Spracovanie URL parametrov (Režim kuriéra vs. Režim správcu) ---
+query_params = st.query_params
 
-with st.form("contract_form"):
-    st.subheader("Údaje kuriéra (Príkazníka)")
-    meno = st.text_input("Meno a priezvisko *", placeholder="napr. Ján Novák")
+if "podpis" in query_params:
+    # === REŽIM PRE KURIÉRA (Zobrazené na mobile kuriéra) ===
+    try:
+        raw_b64 = query_params["podpis"]
+        json_data = base64.b64decode(raw_b64.encode('utf-8')).decode('utf-8')
+        kurier_data = json.loads(json_data)
+    except Exception:
+        st.error("⚠️ Neplatný alebo poškodený podpisový odkaz.")
+        st.stop()
+
+    st.title("✍️ Podpis Príkaznej zmluvy")
+    st.info(f"Vážený/á **{kurier_data['meno']}**, skontrolujte si prosím svoje údaje a podpíšte zmluvu prstom priamo na displeji nižšie.")
+
+    with st.expander("👁️ Kliknite sem pre kontrolu vašich údajov", expanded=True):
+        st.write(f"**Meno a priezvisko:** {kurier_data['meno']}")
+        st.write(f"**Dátum narodenia:** {kurier_data['datum_narodenia']}")
+        if kurier_data.get('rc'):
+            st.write(f"**Rodné číslo:** {kurier_data['rc']}")
+        st.write(f"**Trvalé bydlisko:** {kurier_data['bydlisko']}")
+        st.write(f"**Telefón:** {kurier_data['telefon']}")
+        st.write(f"**E-mail:** {kurier_data['email']}")
+        st.write(f"**IBAN:** {kurier_data['iban']}")
+
+    st.subheader("Váš podpis (nakreslite prstom do rámika):")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        datum_narodenia = st.text_input("Dátum narodenia *", placeholder="DD. MM. RRRR")
-    with col2:
-        rc = st.text_input("Rodné číslo (voliteľné)", placeholder="napr. 950515/1234")
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 255, 255, 0)",
+        stroke_width=2,
+        stroke_color="#000000",
+        background_color="#f8f9fa",
+        height=140,
+        width=320,
+        drawing_mode="freedraw",
+        key="canvas",
+    )
 
-    bydlisko = st.text_input("Trvalé bydlisko (Ulica, PSČ, Mesto) *", placeholder="napr. Hlavná 12, 917 01 Trnava")
+    if st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary"):
+        if canvas_result.image_data is not None:
+            # Overenie, či na plátne niečo je nakreslené
+            alpha = canvas_result.image_data[:, :, 3]
+            if alpha.max() == 0:
+                st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do bieleho rámika.")
+            else:
+                pil_image = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                pdf_bytes = generate_pdf(kurier_data, signature_image=pil_image)
+                safe_name = kurier_data['meno'].strip().replace(" ", "_")
+                subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
 
-    col3, col4 = st.columns(2)
-    with col3:
-        telefon = st.text_input("Telefónne číslo *", placeholder="+421 900 000 000")
-    with col4:
-        email = st.text_input("E-mail *", placeholder="kurier@email.sk")
+                st.success("🎉 Zmluva bola úspešne podpísaná!")
+                st.download_button(
+                    label="📥 Stiahnuť podpísanú zmluvu (PDF)",
+                    data=pdf_bytes,
+                    file_name=subor_nazov,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+        else:
+            st.warning("⚠️ Prosím, nakreslite svoj podpis do rámika.")
 
-    col5, col6 = st.columns(2)
-    with col5:
-        iban = st.text_input("IBAN (Číslo účtu) *", placeholder="SK00 0000 0000 0000 0000 0000")
-    with col6:
-        ico = st.text_input("IČO / DIČ (ak existuje)", placeholder="napr. 12345678")
+else:
+    # === REŽIM SPRÁVCU (Vy zadávate údaje kuriéra) ===
+    st.title("📄 Príprava zmluvy na podpis")
+    st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
-    datum_dnes = datetime.now().strftime("%d. %m. %Y")
-    datum_podpisu = st.text_input("Dátum podpisu zmluvy", value=datum_dnes)
-
-    submitted = st.form_submit_button("🚀 Vygenerovať PDF zmluvu", use_container_width=True)
-
-if submitted:
-    if not (meno and datum_narodenia and bydlisko and telefon and email and iban):
-        st.error("⚠️ Prosím, vyplňte všetky povinné polia označené hviezdičkou (*).")
-    else:
-        data = {
-            "meno": meno,
-            "datum_narodenia": datum_narodenia,
-            "rc": rc,
-            "bydlisko": bydlisko,
-            "telefon": telefon,
-            "email": email,
-            "iban": iban,
-            "ico": ico,
-            "datum_podpisu": datum_podpisu
-        }
+    with st.form("contract_form"):
+        st.subheader("Údaje nového kuriéra")
+        meno = st.text_input("Meno a priezvisko *", placeholder="napr. Artem Diachuk")
         
-        pdf_bytes = generate_pdf(data)
-        safe_name = meno.strip().replace(" ", "_")
-        subor_nazov = f"Prikazna_zmluva_{safe_name}.pdf"
+        col1, col2 = st.columns(2)
+        with col1:
+            datum_narodenia = st.text_input("Dátum narodenia *", placeholder="DD. MM. RRRR")
+        with col2:
+            rc = st.text_input("Rodné číslo (voliteľné)", placeholder="napr. 030930/9418")
 
-        st.success(f"✅ Zmluva pre kuriéra **{meno}** je pripravená!")
-        st.download_button(
-            label="📥 Stiahnuť vygenerovanú PDF zmluvu",
-            data=pdf_bytes,
-            file_name=subor_nazov,
-            mime="application/pdf",
-            use_container_width=True
-        )
+        bydlisko = st.text_input("Trvalé bydlisko *", placeholder="Ulica, PSČ, Mesto")
+
+        col3, col4 = st.columns(2)
+        with col3:
+            telefon = st.text_input("Telefónne číslo *", placeholder="+421 900 000 000")
+        with col4:
+            email = st.text_input("E-mail *", placeholder="kurier@email.sk")
+
+        col5, col6 = st.columns(2)
+        with col5:
+            iban = st.text_input("IBAN (Číslo účtu) *", placeholder="SK00 0000 0000 0000 0000 0000")
+        with col6:
+            ico = st.text_input("IČO / DIČ (ak existuje)", placeholder="voliteľné")
+
+        datum_dnes = datetime.now().strftime("%d. %m. %Y")
+        datum_podpisu = st.text_input("Dátum podpisu zmluvy", value=datum_dnes)
+
+        submitted = st.form_submit_button("🔗 Vytvoriť podpisový odkaz pre kuriéra", use_container_width=True)
+
+    if submitted:
+        if not (meno and datum_narodenia and bydlisko and telefon and email and iban):
+            st.error("⚠️ Prosím, vyplňte všetky povinné polia označené hviezdičkou (*).")
+        else:
+            data = {
+                "meno": meno,
+                "datum_narodenia": datum_narodenia,
+                "rc": rc,
+                "bydlisko": bydlisko,
+                "telefon": telefon,
+                "email": email,
+                "iban": iban,
+                "ico": ico,
+                "datum_podpisu": datum_podpisu
+            }
+            
+            # Bezpečné zakódovanie dát do reťazca URL
+            json_str = json.dumps(data)
+            b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+            
+            # Vytvorenie odkazu
+            current_url = "https://zmluvy-transoceanic.streamlit.app"
+            podpis_url = f"{current_url}/?podpis={b64_str}"
+
+            st.success("✅ Podpisový odkaz pre kuriéra je pripravený!")
+            st.text_input("Odkaz na skopírovanie a odoslanie kuriérovi:", value=podpis_url)
+            
+            # Tlačidlo pre priame otvorenie WhatsAppu
+            clean_phone = telefon.replace(" ", "").replace("+", "")
+            wa_text = urllib.parse.quote(f"Dobrý deň {meno}, posielam Vám príkaznú zmluvu na podpis. Otvorte prosím tento odkaz na mobile, skontrolujte údaje a podpíšte prstom na displeji: {podpis_url}")
+            wa_link = f"https://wa.me/{clean_phone}?text={wa_text}"
+            
+            st.markdown(f'<a href="{wa_link}" target="_blank" style="display:inline-block;padding:10px 15px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;width:100%;">💬 Odoslať kuriérovi priamo cez WhatsApp</a>', unsafe_allow_html=True)
+            
+            st.divider()
+            st.caption("Prípadne si môžete stiahnuť čistú nepodpísanú zmluvu:")
+            ciste_pdf = generate_pdf(data)
+            st.download_button("📄 Stiahnuť nepodpísané PDF", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
