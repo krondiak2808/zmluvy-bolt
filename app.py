@@ -4,6 +4,7 @@ import json
 import base64
 import urllib.parse
 import streamlit as st
+import numpy as np
 from datetime import datetime
 from PIL import Image
 
@@ -256,36 +257,52 @@ if "podpis" in query_params:
 
     st.subheader("Váš podpis (nakreslite prstom do rámika):")
     
+    # Plátno s transparentným pozadím
     canvas_result = st_canvas(
-        fill_color="rgba(255, 255, 255, 0)",
-        stroke_width=2,
+        stroke_width=3,
         stroke_color="#000000",
-        background_color="#f8f9fa",
+        background_color="#ffffff",
         height=140,
-        width=320,
+        width=340,
         drawing_mode="freedraw",
         update_streamlit=True,
-        key="kurier_canvas",
+        key="kurier_signature_canvas",
     )
 
-    if st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary"):
-        has_drawing = False
-        img_data = None
-        
-        # Bezpečné overenie, či plátno obsahuje podpis bez vyvolania RuntimeError
-        try:
-            if canvas_result is not None and getattr(canvas_result, "image_data", None) is not None:
-                img_data = canvas_result.image_data
-                alpha = img_data[:, :, 3]
-                if alpha.max() > 0:
-                    has_drawing = True
-        except Exception:
-            has_drawing = False
+    btn_podpisat = st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary")
 
-        if not has_drawing or img_data is None:
-            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie.")
+    if btn_podpisat:
+        has_signature = False
+        img = None
+
+        # 1. Kontrola či existuje json_data s ťahmi
+        if canvas_result.json_data is not None and "objects" in canvas_result.json_data:
+            if len(canvas_result.json_data["objects"]) > 0:
+                has_signature = True
+
+        # 2. Záložná kontrola cez samotné pixely
+        if not has_signature and canvas_result.image_data is not None:
+            # Čierne ťahy na bielom pozadí (RGB < 200)
+            pixels = canvas_result.image_data[:, :, :3]
+            if np.any(pixels < 100):
+                has_signature = True
+
+        if not has_signature:
+            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do rámika vyššie.")
         else:
-            pil_image = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+            raw_rgba = canvas_result.image_data.astype('uint8')
+            pil_image = Image.fromarray(raw_rgba, 'RGBA')
+            
+            # Konverzia bieleho pozadia na priehľadné pre čisté vloženie do PDF
+            datas = pil_image.getdata()
+            new_data = []
+            for item in datas:
+                if item[0] > 220 and item[1] > 220 and item[2] > 220:
+                    new_data.append((255, 255, 255, 0))
+                else:
+                    new_data.append(item)
+            pil_image.putdata(new_data)
+
             pdf_bytes = generate_pdf(kurier_data, signature_image=pil_image)
             safe_name = kurier_data['meno'].strip().replace(" ", "_")
             subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
