@@ -51,6 +51,8 @@ def get_valid_stamp_image():
         if os.path.exists(path):
             try:
                 with Image.open(path) as img:
+                    img.verify()
+                with Image.open(path) as img:
                     img_bytes = io.BytesIO()
                     img.convert("RGBA").save(img_bytes, format="PNG")
                     img_bytes.seek(0)
@@ -116,17 +118,16 @@ def extract_signature_image(canvas_result, width=340, height=140):
     return None
 
 def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
-    """Odošle podpísanú zmluvu na váš firemný mail cez WebSupport SMTP."""
+    """Odošle podpísanú zmluvu do vašej kancelárie cez WebSupport SMTP."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
     try:
         cfg = st.secrets["email"]
-        smtp_server = cfg["smtp_server"]
-        smtp_port = int(cfg["smtp_port"])
-        sender_email = cfg["sender_email"]
-        sender_password = cfg["sender_password"]
-        receiver_email = cfg["receiver_email"]
+        smtp_server = cfg.get("smtp_server", "smtp.websupport.sk").strip()
+        sender_email = cfg["sender_email"].strip()
+        sender_password = cfg["sender_password"].strip()
+        receiver_email = cfg.get("receiver_email", sender_email).strip()
 
         msg = MIMEMultipart()
         msg["From"] = f"Zmluvy TRANSOCEANIC <{sender_email}>"
@@ -155,11 +156,74 @@ V prílohe posielame hotové, obojstranne podpísané PDF.
         part.add_header("Content-Disposition", f'attachment; filename="{file_name}"')
         msg.attach(part)
 
-        with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, [receiver_email], msg.as_string())
+        try:
+            with smtplib.SMTP(smtp_server, 587, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(sender_email, sender_password)
+                server.sendmail(sender_email, [receiver_email], msg.as_string())
+                return True, "E-mail bol úspešne odoslaný."
+        except Exception as e587:
+            try:
+                with smtplib.SMTP_SSL(smtp_server, 465, timeout=15) as server:
+                    server.login(sender_email, sender_password)
+                    server.sendmail(sender_email, [receiver_email], msg.as_string())
+                    return True, "E-mail bol úspešne odoslaný."
+            except Exception:
+                raise e587
 
-        return True, "E-mail bol úspešne odoslaný."
+    except Exception as e:
+        return False, str(e)
+
+def send_link_to_courier_email(kurier_email, kurier_meno, link):
+    """Odošle odkaz na podpis priamo na e-mail kuriéra z flotila@transoceanic.sk."""
+    if "email" not in st.secrets:
+        return False, "E-mailové nastavenia (secrets) nie sú zadané."
+
+    try:
+        cfg = st.secrets["email"]
+        smtp_server = cfg.get("smtp_server", "smtp.websupport.sk").strip()
+        sender_email = cfg["sender_email"].strip()
+        sender_password = cfg["sender_password"].strip()
+
+        msg = MIMEMultipart()
+        msg["From"] = f"TRANSOCEANIC s. r. o. <{sender_email}>"
+        msg["To"] = kurier_email.strip()
+        msg["Subject"] = "Príkazná zmluva na podpis – TRANSOCEANIC s. r. o."
+
+        body = f"""Dobrý deň {kurier_meno},
+
+posielame Vám na podpis Príkaznú zmluvu o výkone platformovej práce so spoločnosťou TRANSOCEANIC s. r. o.
+
+Zmluvu si môžete otvoriť priamo na Vašom mobilnom telefóne, skontrolovať údaje a podpísať prstom na displeji kliknutím na tento odkaz:
+{link}
+
+Po podpísaní zmluvy si budete môcť hotový dokument ihneď stiahnuť a jeho kópia sa automaticky zaeviduje.
+
+S pozdravom,
+TRANSOCEANIC s. r. o.
+flotila@transoceanic.sk
+"""
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        try:
+            with smtplib.SMTP(smtp_server, 587, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(sender_email, sender_password)
+                server.sendmail(sender_email, [kurier_email.strip()], msg.as_string())
+                return True, "E-mail s odkazom bol kuriérovi odoslaný."
+        except Exception as e587:
+            try:
+                with smtplib.SMTP_SSL(smtp_server, 465, timeout=15) as server:
+                    server.login(sender_email, sender_password)
+                    server.sendmail(sender_email, [kurier_email.strip()], msg.as_string())
+                    return True, "E-mail s odkazom bol kuriérovi odoslaný."
+            except Exception:
+                raise e587
+
     except Exception as e:
         return False, str(e)
 
@@ -359,6 +423,7 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     pdf_buffer.seek(0)
     return pdf_buffer
 
+# --- Spracovanie URL parametrov ---
 query_params = st.query_params
 
 if "podpis" in query_params:
@@ -426,6 +491,7 @@ if "podpis" in query_params:
             )
 
 else:
+    # === REŽIM SPRÁVCU ===
     st.title("📄 Príprava zmluvy na podpis")
     st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
@@ -442,6 +508,10 @@ else:
                 f.write(uploaded_stamp.getbuffer())
             st.success("🎉 Pečiatka bola úspešne uložená!")
             st.rerun()
+
+    # Ukladanie stavu vygenerovaného odkazu v relácii (session state)
+    if "pripravena_zmluva" not in st.session_state:
+        st.session_state.pripravena_zmluva = None
 
     with st.form("contract_form"):
         st.subheader("Údaje nového kuriéra")
@@ -470,7 +540,7 @@ else:
         datum_dnes = datetime.now().strftime("%d. %m. %Y")
         datum_podpisu = st.text_input("Dátum podpisu zmluvy", value=datum_dnes)
 
-        submitted = st.form_submit_button("🔗 Vytvoriť podpisový odkaz pre kuriéra", use_container_width=True)
+        submitted = st.form_submit_button("🔗 Pripraviť zmluvu na odoslanie", use_container_width=True)
 
     if submitted:
         if not (meno and datum_narodenia and bydlisko and telefon and email and iban):
@@ -487,22 +557,48 @@ else:
                 "ico": ico,
                 "datum_podpisu": datum_podpisu
             }
-            
             json_str = json.dumps(data)
             b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-            
             current_url = "https://zmluvy-transoceanic.streamlit.app"
             podpis_url = f"{current_url}/?podpis={b64_str}"
 
-            st.success("✅ Podpisový odkaz pre kuriéra je pripravený!")
-            st.text_input("Odkaz na skopírovanie a odoslanie kuriérovi:", value=podpis_url)
-            
-            clean_phone = telefon.replace(" ", "").replace("+", "")
-            wa_text = urllib.parse.quote(f"Dobrý deň {meno}, posielam Vám príkaznú zmluvu na podpis. Otvorte prosím tento odkaz na mobile, skontrolujte údaje a podpíšte prstom na displeji: {podpis_url}")
+            st.session_state.pripravena_zmluva = {
+                "data": data,
+                "url": podpis_url
+            }
+
+    # Zobrazenie možností odoslania (WhatsApp a E-mail)
+    if st.session_state.pripravena_zmluva:
+        zmluva_info = st.session_state.pripravena_zmluva
+        c_data = zmluva_info["data"]
+        p_url = zmluva_info["url"]
+
+        st.success(f"✅ Zmluva pre kuriéra **{c_data['meno']}** je pripravená na odoslanie!")
+        st.text_input("Priamy odkaz na podpis:", value=p_url)
+
+        st.subheader("Vyberte spôsob doručenia kuriérovi:")
+        col_btn1, col_btn2 = st.columns(2)
+
+        with col_btn1:
+            clean_phone = c_data["telefon"].replace(" ", "").replace("+", "")
+            wa_text = urllib.parse.quote(
+                f"Dobrý deň {c_data['meno']}, posielame Vám príkaznú zmluvu na podpis. Otvorte prosím tento odkaz na mobile, skontrolujte údaje a podpíšte prstom na displeji: {p_url}"
+            )
             wa_link = f"https://wa.me/{clean_phone}?text={wa_text}"
-            
-            st.markdown(f'<a href="{wa_link}" target="_blank" style="display:inline-block;padding:10px 15px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;width:100%;">💬 Odoslať kuriérovi priamo cez WhatsApp</a>', unsafe_allow_html=True)
-            
-            st.divider()
-            ciste_pdf = generate_pdf(data)
-            st.download_button("📄 Stiahnuť vygenerované PDF", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
+            st.markdown(
+                f'<a href="{wa_link}" target="_blank" style="display:block;padding:12px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;">💬 Odoslať cez WhatsApp</a>',
+                unsafe_allow_html=True
+            )
+
+        with col_btn2:
+            if st.button(f"✉️ Odoslať na e-mail ({c_data['email']})", use_container_width=True, type="primary"):
+                with st.spinner("Odosielam e-mail kuriérovi..."):
+                    mail_ok, mail_msg = send_link_to_courier_email(c_data["email"], c_data["meno"], p_url)
+                if mail_ok:
+                    st.success(f"📨 E-mail bol úspešne odoslaný na adresu **{c_data['email']}**!")
+                else:
+                    st.error(f"⚠️ Odoslanie e-mailu zlyhalo: {mail_msg}")
+
+        st.divider()
+        ciste_pdf = generate_pdf(c_data)
+        st.download_button("📄 Stiahnuť vygenerované nepodpísané PDF", data=ciste_pdf, file_name=f"Zmluva_{c_data['meno']}.pdf")
