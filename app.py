@@ -1,6 +1,5 @@
 import io
 import os
-import urllib.request
 import streamlit as st
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
@@ -14,21 +13,25 @@ st.set_page_config(page_title="Generátor zmluvy TRANSOCEANIC", page_icon="📄"
 
 @st.cache_resource
 def setup_fonts():
-    # Stiahnutie DejaVu Sans s plnou podporou slovenskej diakritiky (č, š, ž, ť, ď, ň, ľ, ô)
-    font_reg_url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/resources/DejaVuSans.ttf"
-    font_bold_url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/resources/DejaVuSans-Bold.ttf"
+    # Cesty k fontom s plnou podporou slovenskej diakritiky (č, š, ž, ť, ď, ň, ľ, ô)
+    # Na Linuxe (Streamlit Cloud):
+    linux_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    linux_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     
-    reg_path = "DejaVuSans.ttf"
-    bold_path = "DejaVuSans-Bold.ttf"
+    # Na Macu:
+    mac_reg = "/System/Library/Fonts/Supplemental/Arial.ttf"
+    mac_bold = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 
-    if not os.path.exists(reg_path):
-        urllib.request.urlretrieve(font_reg_url, reg_path)
-    if not os.path.exists(bold_path):
-        urllib.request.urlretrieve(font_bold_url, bold_path)
-
-    pdfmetrics.registerFont(TTFont("DejaVu", reg_path))
-    pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold_path))
-    return "DejaVu", "DejaVu-Bold"
+    if os.path.exists(linux_reg) and os.path.exists(linux_bold):
+        pdfmetrics.registerFont(TTFont("CustomFont", linux_reg))
+        pdfmetrics.registerFont(TTFont("CustomFont-Bold", linux_bold))
+        return "CustomFont", "CustomFont-Bold"
+    elif os.path.exists(mac_reg) and os.path.exists(mac_bold):
+        pdfmetrics.registerFont(TTFont("CustomFont", mac_reg))
+        pdfmetrics.registerFont(TTFont("CustomFont-Bold", mac_bold))
+        return "CustomFont", "CustomFont-Bold"
+    else:
+        return "Helvetica", "Helvetica-Bold"
 
 def generate_pdf(data):
     font_regular, font_bold = setup_fonts()
