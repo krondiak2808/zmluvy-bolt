@@ -37,11 +37,9 @@ def setup_fonts():
         return "Helvetica", "Helvetica-Bold"
 
 def extract_signature_image(canvas_result, width=340, height=140):
-    """Bezpečne získa alebo nakreslí podpis bez vyvolania RuntimeError."""
     if canvas_result is None:
         return None
 
-    # 1. Spôsob: Vykreslenie priamo z vektorových ťahov (najspoľahlivejší)
     if canvas_result.json_data and "objects" in canvas_result.json_data:
         objects = canvas_result.json_data["objects"]
         if len(objects) > 0:
@@ -73,7 +71,6 @@ def extract_signature_image(canvas_result, width=340, height=140):
             if has_strokes:
                 return img
 
-    # 2. Spôsob: Kontrola pixelov iba vtedy, ak je raw_image_data bezpečne k dispozícii
     if getattr(canvas_result, "raw_image_data", None) is not None:
         try:
             raw_rgba = canvas_result.image_data.astype('uint8')
@@ -254,6 +251,20 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
     story.append(Spacer(1, 8))
 
+    # --- Sekcia Príkazcu (Pečiatka a podpis) ---
+    prikazca_cell = []
+    prikazca_cell.append(Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.", party_style))
+    
+    # Ak v priečinku existuje súbor peciatka.png, vloží sa automaticky nad riadok
+    stamp_path = "peciatka.png"
+    if os.path.exists(stamp_path):
+        prikazca_cell.append(Spacer(1, 2))
+        prikazca_cell.append(ReportLabImage(stamp_path, width=125, height=50))
+        prikazca_cell.append(Paragraph("____________________________________<br/>Denis Beňa – konateľ", party_style))
+    else:
+        prikazca_cell.append(Paragraph("<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style))
+
+    # --- Sekcia Príkazníka (Podpis kuriéra) ---
     prikaznik_signature_cell = []
     prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
     
@@ -267,15 +278,7 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     else:
         prikaznik_signature_cell.append(Paragraph(f"<br/><br/><br/>____________________________________<br/>{data['meno']}", party_style))
 
-    podpisy_table = Table(
-        [
-            [
-                Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style),
-                prikaznik_signature_cell
-            ]
-        ],
-        colWidths=[260, 260]
-    )
+    podpisy_table = Table([[prikazca_cell, prikaznik_signature_cell]], colWidths=[260, 260])
     podpisy_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -292,7 +295,6 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
 query_params = st.query_params
 
 if "podpis" in query_params:
-    # === REŽIM PRE KURIÉRA ===
     try:
         raw_b64 = query_params["podpis"]
         json_data = base64.b64decode(raw_b64.encode('utf-8')).decode('utf-8')
@@ -349,7 +351,6 @@ if "podpis" in query_params:
             )
 
 else:
-    # === REŽIM SPRÁVCU ===
     st.title("📄 Príprava zmluvy na podpis")
     st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
@@ -414,6 +415,6 @@ else:
             st.markdown(f'<a href="{wa_link}" target="_blank" style="display:inline-block;padding:10px 15px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;width:100%;">💬 Odoslať kuriérovi priamo cez WhatsApp</a>', unsafe_allow_html=True)
             
             st.divider()
-            st.caption("Prípadne si môžete stiahnuť čistú nepodpísanú zmluvu:")
+            st.caption("Prípadne si môžete stiahnuť čistú zmluvu s vašou pečiatkou:")
             ciste_pdf = generate_pdf(data)
-            st.download_button("📄 Stiahnuť nepodpísané PDF", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
+            st.download_button("📄 Stiahnuť PDF s pečiatkou", data=ciste_pdf, file_name=f"Zmluva_{meno}.pdf")
