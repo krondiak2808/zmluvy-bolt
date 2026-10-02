@@ -3,9 +3,15 @@ import os
 import json
 import base64
 import urllib.parse
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
+from datetime import datetime
+
 import streamlit as st
 import numpy as np
-from datetime import datetime
 from PIL import Image, ImageDraw
 
 from reportlab.lib.pagesizes import A4
@@ -37,7 +43,6 @@ def setup_fonts():
         return "Helvetica", "Helvetica-Bold"
 
 def get_valid_stamp_image():
-    """Overí a vráti platný objekt pečiatky v pamäti bez rizika pádu PIL."""
     candidates = [
         "peciatka.png", "peciatka.PNG", "peciatka.jpg", 
         "peciatka.jpeg", "pečiatka.png", "podpis.png"
@@ -45,9 +50,6 @@ def get_valid_stamp_image():
     for path in candidates:
         if os.path.exists(path):
             try:
-                with Image.open(path) as img:
-                    img.verify()  # Overenie formátu súboru
-                # Načítanie do pamäťového streamu pre ReportLab
                 with Image.open(path) as img:
                     img_bytes = io.BytesIO()
                     img.convert("RGBA").save(img_bytes, format="PNG")
@@ -112,6 +114,54 @@ def extract_signature_image(canvas_result, width=340, height=140):
             pass
 
     return None
+
+def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
+    """Odošle podpísanú zmluvu na váš firemný mail cez WebSupport SMTP."""
+    if "email" not in st.secrets:
+        return False, "E-mailové nastavenia (secrets) nie sú zadané."
+
+    try:
+        cfg = st.secrets["email"]
+        smtp_server = cfg["smtp_server"]
+        smtp_port = int(cfg["smtp_port"])
+        sender_email = cfg["sender_email"]
+        sender_password = cfg["sender_password"]
+        receiver_email = cfg["receiver_email"]
+
+        msg = MIMEMultipart()
+        msg["From"] = f"Zmluvy TRANSOCEANIC <{sender_email}>"
+        msg["To"] = receiver_email
+        msg["Subject"] = f"✅ Podpísaná zmluva – {kurier_data['meno']}"
+
+        body = f"""Dobrý deň,
+
+kuriér úspešne podpísal Príkaznú zmluvu cez mobilný odkaz.
+
+Údaje kuriéra:
+- Meno a priezvisko: {kurier_data['meno']}
+- Dátum narodenia: {kurier_data['datum_narodenia']}
+- Bydlisko: {kurier_data['bydlisko']}
+- Telefón: {kurier_data['telefon']}
+- E-mail: {kurier_data['email']}
+- IBAN: {kurier_data['iban']}
+
+V prílohe posielame hotové, obojstranne podpísané PDF.
+"""
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(pdf_bytes.getvalue())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{file_name}"')
+        msg.attach(part)
+
+        with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, [receiver_email], msg.as_string())
+
+        return True, "E-mail bol úspešne odoslaný."
+    except Exception as e:
+        return False, str(e)
 
 def generate_pdf(data, signature_image=None):
     font_regular, font_bold = setup_fonts()
@@ -272,7 +322,6 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
     story.append(Spacer(1, 8))
 
-    # Bezpečné osadenie pečiatky Príkazcu
     prikazca_cell = []
     prikazca_cell.append(Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.", party_style))
     
@@ -284,7 +333,6 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     else:
         prikazca_cell.append(Paragraph("<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style))
 
-    # Osadenie podpisu Príkazníka
     prikaznik_signature_cell = []
     prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
     
@@ -311,7 +359,6 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- Spracovanie URL parametrov ---
 query_params = st.query_params
 
 if "podpis" in query_params:
@@ -349,7 +396,7 @@ if "podpis" in query_params:
         key="kurier_signature_canvas",
     )
 
-    btn_podpisat = st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary")
+    btn_podpisat = st.button("✅ Záväzne podpísať a odoslať zmluvu", use_container_width=True, type="primary")
 
     if btn_podpisat:
         sig_image = extract_signature_image(canvas_result, width=340, height=140)
@@ -361,7 +408,15 @@ if "podpis" in query_params:
             safe_name = kurier_data['meno'].strip().replace(" ", "_")
             subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
 
+            with st.spinner("Odosielam podpísanú zmluvu do systému..."):
+                sent_ok, msg_text = send_signed_pdf_email(pdf_bytes, kurier_data, subor_nazov)
+
             st.success("🎉 Zmluva bola úspešne podpísaná!")
+            if sent_ok:
+                st.info("✉️ Kópia podpísanej zmluvy bola automaticky odoslaná do kancelárie.")
+            else:
+                st.error(f"⚠️ Nepodarilo sa odoslať e-mail: {msg_text}")
+
             st.download_button(
                 label="📥 Stiahnuť podpísanú zmluvu (PDF)",
                 data=pdf_bytes,
@@ -374,19 +429,18 @@ else:
     st.title("📄 Príprava zmluvy na podpis")
     st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
-    # Kontrola a správa pečiatky priamo v paneli správcu
     stamp_ok = get_valid_stamp_image() is not None
     if stamp_ok:
         st.success("✅ Pečiatka a podpis konateľa sú aktívne a pripravené na vkladanie do PDF.")
     else:
-        st.warning("⚠️ Pečiatka Príkazcu zatiaľ nie je nahraná (alebo je súbor poškodený). Môžete ju nahrať nižšie.")
+        st.warning("⚠️ Pečiatka Príkazcu zatiaľ nie je nahraná.")
 
     with st.expander("🛠️ Nahrať / Aktualizovať pečiatku spoločnosti"):
         uploaded_stamp = st.file_uploader("Vyberte obrázok pečiatky (PNG alebo JPG)", type=["png", "jpg", "jpeg"])
         if uploaded_stamp is not None:
             with open("peciatka.png", "wb") as f:
                 f.write(uploaded_stamp.getbuffer())
-            st.success("🎉 Pečiatka bola úspešne uložená! Odteraz sa automaticky vkladá do všetkých zmlúv.")
+            st.success("🎉 Pečiatka bola úspešne uložená!")
             st.rerun()
 
     with st.form("contract_form"):
