@@ -6,7 +6,7 @@ import urllib.parse
 import streamlit as st
 import numpy as np
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -35,6 +35,65 @@ def setup_fonts():
         return "CustomFont", "CustomFont-Bold"
     else:
         return "Helvetica", "Helvetica-Bold"
+
+def extract_signature_image(canvas_result, width=340, height=140):
+    """Bezpečne získa alebo nakreslí podpis bez vyvolania RuntimeError."""
+    if canvas_result is None:
+        return None
+
+    # 1. Spôsob: Vykreslenie priamo z vektorových ťahov (najspoľahlivejší)
+    if canvas_result.json_data and "objects" in canvas_result.json_data:
+        objects = canvas_result.json_data["objects"]
+        if len(objects) > 0:
+            img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(img)
+            has_strokes = False
+
+            for obj in objects:
+                path = obj.get("path", [])
+                points = []
+                for cmd in path:
+                    if len(cmd) >= 3 and cmd[0] == "M":
+                        if len(points) > 1:
+                            draw.line(points, fill=(0, 0, 0, 255), width=3, joint="curve")
+                        points = [(cmd[1], cmd[2])]
+                    elif len(cmd) >= 5 and cmd[0] == "Q":
+                        points.append((cmd[3], cmd[4]))
+                    elif len(cmd) >= 3 and cmd[0] == "L":
+                        points.append((cmd[1], cmd[2]))
+
+                if len(points) > 1:
+                    draw.line(points, fill=(0, 0, 0, 255), width=3, joint="curve")
+                    has_strokes = True
+                elif len(points) == 1:
+                    x, y = points[0]
+                    draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(0, 0, 0, 255))
+                    has_strokes = True
+
+            if has_strokes:
+                return img
+
+    # 2. Spôsob: Kontrola pixelov iba vtedy, ak je raw_image_data bezpečne k dispozícii
+    if getattr(canvas_result, "raw_image_data", None) is not None:
+        try:
+            raw_rgba = canvas_result.image_data.astype('uint8')
+            pil_image = Image.fromarray(raw_rgba, 'RGBA')
+            datas = pil_image.getdata()
+            new_data = []
+            has_pixels = False
+            for item in datas:
+                if item[0] < 120 and item[1] < 120 and item[2] < 120 and item[3] > 50:
+                    new_data.append((0, 0, 0, 255))
+                    has_pixels = True
+                else:
+                    new_data.append((255, 255, 255, 0))
+            if has_pixels:
+                pil_image.putdata(new_data)
+                return pil_image
+        except Exception:
+            pass
+
+    return None
 
 def generate_pdf(data, signature_image=None):
     font_regular, font_bold = setup_fonts()
@@ -257,11 +316,10 @@ if "podpis" in query_params:
 
     st.subheader("Váš podpis (nakreslite prstom do rámika):")
     
-    # Plátno s transparentným pozadím
     canvas_result = st_canvas(
         stroke_width=3,
         stroke_color="#000000",
-        background_color="#ffffff",
+        background_color="#f8f9fa",
         height=140,
         width=340,
         drawing_mode="freedraw",
@@ -272,38 +330,12 @@ if "podpis" in query_params:
     btn_podpisat = st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary")
 
     if btn_podpisat:
-        has_signature = False
-        img = None
+        sig_image = extract_signature_image(canvas_result, width=340, height=140)
 
-        # 1. Kontrola či existuje json_data s ťahmi
-        if canvas_result.json_data is not None and "objects" in canvas_result.json_data:
-            if len(canvas_result.json_data["objects"]) > 0:
-                has_signature = True
-
-        # 2. Záložná kontrola cez samotné pixely
-        if not has_signature and canvas_result.image_data is not None:
-            # Čierne ťahy na bielom pozadí (RGB < 200)
-            pixels = canvas_result.image_data[:, :, :3]
-            if np.any(pixels < 100):
-                has_signature = True
-
-        if not has_signature:
-            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do rámika vyššie.")
+        if sig_image is None:
+            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie.")
         else:
-            raw_rgba = canvas_result.image_data.astype('uint8')
-            pil_image = Image.fromarray(raw_rgba, 'RGBA')
-            
-            # Konverzia bieleho pozadia na priehľadné pre čisté vloženie do PDF
-            datas = pil_image.getdata()
-            new_data = []
-            for item in datas:
-                if item[0] > 220 and item[1] > 220 and item[2] > 220:
-                    new_data.append((255, 255, 255, 0))
-                else:
-                    new_data.append(item)
-            pil_image.putdata(new_data)
-
-            pdf_bytes = generate_pdf(kurier_data, signature_image=pil_image)
+            pdf_bytes = generate_pdf(kurier_data, signature_image=sig_image)
             safe_name = kurier_data['meno'].strip().replace(" ", "_")
             subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
 
