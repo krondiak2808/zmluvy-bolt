@@ -1,16 +1,37 @@
 import io
+import os
+import urllib.request
 import streamlit as st
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 st.set_page_config(page_title="Generátor zmluvy TRANSOCEANIC", page_icon="📄", layout="centered")
 
+@st.cache_resource
+def setup_fonts():
+    # Stiahnutie DejaVu Sans s plnou podporou slovenskej diakritiky (č, š, ž, ť, ď, ň, ľ, ô)
+    font_reg_url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/resources/DejaVuSans.ttf"
+    font_bold_url = "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/resources/DejaVuSans-Bold.ttf"
+    
+    reg_path = "DejaVuSans.ttf"
+    bold_path = "DejaVuSans-Bold.ttf"
+
+    if not os.path.exists(reg_path):
+        urllib.request.urlretrieve(font_reg_url, reg_path)
+    if not os.path.exists(bold_path):
+        urllib.request.urlretrieve(font_bold_url, bold_path)
+
+    pdfmetrics.registerFont(TTFont("DejaVu", reg_path))
+    pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold_path))
+    return "DejaVu", "DejaVu-Bold"
+
 def generate_pdf(data):
-    font_regular = "Helvetica"
-    font_bold = "Helvetica-Bold"
+    font_regular, font_bold = setup_fonts()
 
     pdf_buffer = io.BytesIO()
 
