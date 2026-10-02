@@ -43,6 +43,7 @@ def setup_fonts():
         return "Helvetica", "Helvetica-Bold"
 
 def get_valid_stamp_image():
+    """Overí a vráti platný objekt pečiatky v pamäti."""
     candidates = [
         "peciatka.png", "peciatka.PNG", "peciatka.jpg", 
         "peciatka.jpeg", "pečiatka.png", "podpis.png"
@@ -118,7 +119,7 @@ def extract_signature_image(canvas_result, width=340, height=140):
     return None
 
 def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
-    """Odošle podpísanú zmluvu do vašej kancelárie cez WebSupport SMTP."""
+    """Odošle podpísanú zmluvu do vašej kancelárie ako klikateľnú PDF prílohu."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -146,12 +147,14 @@ kuriér úspešne podpísal Príkaznú zmluvu cez mobilný odkaz.
 - E-mail: {kurier_data['email']}
 - IBAN: {kurier_data['iban']}
 
-V prílohe posielame hotové, obojstranne podpísané PDF.
+V prílohe nájdete hotovú obojstranne podpísanú zmluvu vo formáte PDF.
 """
         msg.attach(MIMEText(body, "plain", "utf-8"))
 
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(pdf_bytes.getvalue())
+        # Priloženie skutočného binárneho PDF
+        part = MIMEBase("application", "pdf")
+        pdf_bytes.seek(0)
+        part.set_payload(pdf_bytes.read())
         encoders.encode_base64(part)
         part.add_header("Content-Disposition", f'attachment; filename="{file_name}"')
         msg.attach(part)
@@ -177,7 +180,7 @@ V prílohe posielame hotové, obojstranne podpísané PDF.
         return False, str(e)
 
 def send_link_to_courier_email(kurier_email, kurier_meno, link):
-    """Odošle odkaz na podpis priamo na e-mail kuriéra z flotila@transoceanic.sk."""
+    """Odošle odkaz na podpis priamo na e-mail kuriéra."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -199,7 +202,7 @@ posielame Vám na podpis Príkaznú zmluvu o výkone platformovej práce so spol
 Zmluvu si môžete otvoriť priamo na Vašom mobilnom telefóne, skontrolovať údaje a podpísať prstom na displeji kliknutím na tento odkaz:
 {link}
 
-Po podpísaní zmluvy si budete môcť hotový dokument ihneď stiahnuť a jeho kópia sa automaticky zaeviduje.
+Po podpísaní zmluvy si budete môcť hotový dokument ihneď stiahnuť a jeho kópia sa automaticky odošle do kancelárie.
 
 S pozdravom,
 TRANSOCEANIC s. r. o.
@@ -336,7 +339,7 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
             "7.1 Zmluvné strany sa zaväzujú postupovať v súlade s Nariadením GDPR a zákonom č. 18/2018 Z. z.",
             "7.2 Príkazník pri plnení príkazu prichádza do styku s osobnými údajmi zákazníkov a partnerov platformy. Zaväzuje sa ich spracúvať výlučne v nevyhnutnom rozsahu za účelom doručenia danej objednávky.",
             "7.3 Príkazník je povinný osobné údaje použiť len na splnenie príkazu, neposkytovať ich tretím stranám, nevytvárať databázy a po doručení ich ďalej neuchovávať.",
-            "7.4 Príkazník plne zodpovedá za akúkoľvek škodu alebo pokuty uložené dozornými orgánmi v dôsledku jeho neoprávneného nakladania s osobnými údajmi."
+            "7.4 Príkazník plne zodpovedá za akúkoľvek škodu alebo pokuty uložené dozornými orgánmi v dôsledku jeho neoprávneného nakladania s osobnými údajmi.",
         ]),
         ("Článok VIII. – Zodpovednosť za škodu a započítanie pohľadávok", [
             "8.1 Príkazník zodpovedá za škodu spôsobenú zavineným porušením svojich povinností vyplývajúcich z tejto zmluvy, pravidiel platformy alebo právnych predpisov.",
@@ -509,7 +512,6 @@ else:
             st.success("🎉 Pečiatka bola úspešne uložená!")
             st.rerun()
 
-    # Ukladanie stavu vygenerovaného odkazu v relácii (session state)
     if "pripravena_zmluva" not in st.session_state:
         st.session_state.pripravena_zmluva = None
 
@@ -567,13 +569,12 @@ else:
                 "url": podpis_url
             }
 
-    # Zobrazenie možností odoslania (WhatsApp a E-mail)
     if st.session_state.pripravena_zmluva:
         zmluva_info = st.session_state.pripravena_zmluva
         c_data = zmluva_info["data"]
         p_url = zmluva_info["url"]
 
-        st.success(f"✅ Zmluva pre kuriéra **{c_data['meno']}** je pripravená na odoslanie!")
+        st.success(f"✅ Zmluva pre kuriéra **{c_data['meno']}** je pripravená!")
         st.text_input("Priamy odkaz na podpis:", value=p_url)
 
         st.subheader("Vyberte spôsob doručenia kuriérovi:")
