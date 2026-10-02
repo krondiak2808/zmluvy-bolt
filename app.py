@@ -194,7 +194,6 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
     story.append(Spacer(1, 8))
 
-    # Sekcia podpisu s vloženým prstovým podpisom
     prikaznik_signature_cell = []
     prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
     
@@ -229,11 +228,11 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- Spracovanie URL parametrov (Režim kuriéra vs. Režim správcu) ---
+# --- Spracovanie URL parametrov ---
 query_params = st.query_params
 
 if "podpis" in query_params:
-    # === REŽIM PRE KURIÉRA (Zobrazené na mobile kuriéra) ===
+    # === REŽIM PRE KURIÉRA ===
     try:
         raw_b64 = query_params["podpis"]
         json_data = base64.b64decode(raw_b64.encode('utf-8')).decode('utf-8')
@@ -265,34 +264,43 @@ if "podpis" in query_params:
         height=140,
         width=320,
         drawing_mode="freedraw",
-        key="canvas",
+        update_streamlit=True,
+        key="kurier_canvas",
     )
 
     if st.button("✅ Záväzne podpísať a stiahnuť zmluvu", use_container_width=True, type="primary"):
-        if canvas_result.image_data is not None:
-            # Overenie, či na plátne niečo je nakreslené
-            alpha = canvas_result.image_data[:, :, 3]
-            if alpha.max() == 0:
-                st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do bieleho rámika.")
-            else:
-                pil_image = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
-                pdf_bytes = generate_pdf(kurier_data, signature_image=pil_image)
-                safe_name = kurier_data['meno'].strip().replace(" ", "_")
-                subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
+        has_drawing = False
+        img_data = None
+        
+        # Bezpečné overenie, či plátno obsahuje podpis bez vyvolania RuntimeError
+        try:
+            if canvas_result is not None and getattr(canvas_result, "image_data", None) is not None:
+                img_data = canvas_result.image_data
+                alpha = img_data[:, :, 3]
+                if alpha.max() > 0:
+                    has_drawing = True
+        except Exception:
+            has_drawing = False
 
-                st.success("🎉 Zmluva bola úspešne podpísaná!")
-                st.download_button(
-                    label="📥 Stiahnuť podpísanú zmluvu (PDF)",
-                    data=pdf_bytes,
-                    file_name=subor_nazov,
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+        if not has_drawing or img_data is None:
+            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie.")
         else:
-            st.warning("⚠️ Prosím, nakreslite svoj podpis do rámika.")
+            pil_image = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+            pdf_bytes = generate_pdf(kurier_data, signature_image=pil_image)
+            safe_name = kurier_data['meno'].strip().replace(" ", "_")
+            subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
+
+            st.success("🎉 Zmluva bola úspešne podpísaná!")
+            st.download_button(
+                label="📥 Stiahnuť podpísanú zmluvu (PDF)",
+                data=pdf_bytes,
+                file_name=subor_nazov,
+                mime="application/pdf",
+                use_container_width=True
+            )
 
 else:
-    # === REŽIM SPRÁVCU (Vy zadávate údaje kuriéra) ===
+    # === REŽIM SPRÁVCU ===
     st.title("📄 Príprava zmluvy na podpis")
     st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
 
@@ -341,18 +349,15 @@ else:
                 "datum_podpisu": datum_podpisu
             }
             
-            # Bezpečné zakódovanie dát do reťazca URL
             json_str = json.dumps(data)
             b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
             
-            # Vytvorenie odkazu
             current_url = "https://zmluvy-transoceanic.streamlit.app"
             podpis_url = f"{current_url}/?podpis={b64_str}"
 
             st.success("✅ Podpisový odkaz pre kuriéra je pripravený!")
             st.text_input("Odkaz na skopírovanie a odoslanie kuriérovi:", value=podpis_url)
             
-            # Tlačidlo pre priame otvorenie WhatsAppu
             clean_phone = telefon.replace(" ", "").replace("+", "")
             wa_text = urllib.parse.quote(f"Dobrý deň {meno}, posielam Vám príkaznú zmluvu na podpis. Otvorte prosím tento odkaz na mobile, skontrolujte údaje a podpíšte prstom na displeji: {podpis_url}")
             wa_link = f"https://wa.me/{clean_phone}?text={wa_text}"
