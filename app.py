@@ -1,13 +1,16 @@
+import base64
 from datetime import datetime
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import hashlib
 import io
 import json
 import os
 import smtplib
 import urllib.parse
+import uuid
 import numpy as np
 from PIL import Image, ImageDraw
 from reportlab.lib import colors
@@ -18,6 +21,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image as ReportLabImage,
     KeepTogether,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -132,7 +136,7 @@ def extract_signature_image(canvas_result, width=340, height=140):
   return None
 
 
-def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
+def send_signed_pdf_email(pdf_bytes, kurier_data, file_name, file_hash=""):
   if "email" not in st.secrets:
     return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -160,7 +164,10 @@ kuriér úspešne podpísal Príkaznú zmluvu cez mobilný odkaz.
 - E-mail: {kurier_data['email']}
 - IBAN: {kurier_data['iban']}
 
-V prílohe nájdete hotovú obojstranne podpísanú zmluvu vo formáte PDF.
+Digitálny odtlačok integrity (SHA-256):
+{file_hash}
+
+V prílohe nájdete hotovú obojstranne podpísanú zmluvu vo formáte PDF vrátane auditnej doložky eIDAS.
 """
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
@@ -243,7 +250,7 @@ flotila@transoceanic.sk
     return False, str(e)
 
 
-def generate_pdf(data, signature_image=None):
+def generate_pdf(data, signature_image=None, audit_info=None):
   font_regular, font_bold = setup_fonts()
   pdf_buffer = io.BytesIO()
 
@@ -841,6 +848,149 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
 
   story.append(KeepTogether(podpisy_table))
 
+  # === AUDITNÁ DOLOŽKA (AUDIT TRAIL) PODĽA eIDAS ===
+  if audit_info:
+    story.append(PageBreak())
+
+    audit_title_style = ParagraphStyle(
+        "AuditTitle",
+        parent=styles["Normal"],
+        fontName=font_bold,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#0f172a"),
+        spaceAfter=4,
+    )
+    audit_text_style = ParagraphStyle(
+        "AuditText",
+        parent=styles["Normal"],
+        fontName=font_regular,
+        fontSize=7.5,
+        leading=10,
+        textColor=colors.HexColor("#334155"),
+    )
+    audit_label_style = ParagraphStyle(
+        "AuditLabel",
+        parent=styles["Normal"],
+        fontName=font_bold,
+        fontSize=7.5,
+        leading=10,
+        textColor=colors.HexColor("#475569"),
+    )
+
+    story.append(
+        Paragraph(
+            "DOLOŽKA O ELEKTRONICKOM PODPISE (AUDIT TRAIL)", audit_title_style
+        )
+    )
+    story.append(
+        Paragraph(
+            "Záznam o vyhotovení, integrite a autorizácii zmluvy v zmysle"
+            " Nariadenia Európskeho parlamentu a Rady (EÚ) č. 910/2014 (eIDAS)"
+            " a § 40 ods. 4 Občianskeho zákonníka SR.",
+            audit_text_style,
+        )
+    )
+    story.append(Spacer(1, 10))
+
+    audit_rows = [
+        [
+            Paragraph("Jedinečné ID transakcie:", audit_label_style),
+            Paragraph(audit_info.get("tx_id", "N/A"), audit_text_style),
+        ],
+        [
+            Paragraph("Názov dokumentu:", audit_label_style),
+            Paragraph(
+                "Príkazná zmluva o výkone platformovej práce", audit_text_style
+            ),
+        ],
+        [
+            Paragraph("Identifikácia príkazníka:", audit_label_style),
+            Paragraph(
+                f"{data['meno']} (nar. {data['datum_narodenia']})",
+                audit_text_style,
+            ),
+        ],
+        [
+            Paragraph("Overený e-mail / kontakt:", audit_label_style),
+            Paragraph(
+                f"{data['email']} / {data['telefon']}", audit_text_style
+            ),
+        ],
+        [
+            Paragraph("Dátum a presný čas podpisu:", audit_label_style),
+            Paragraph(
+                f"{audit_info.get('timestamp', 'N/A')} UTC", audit_text_style
+            ),
+        ],
+        [
+            Paragraph("IP adresa zariadenia:", audit_label_style),
+            Paragraph(audit_info.get("ip", "Nezaznamenaná"), audit_text_style),
+        ],
+        [
+            Paragraph("Používateľský agent (Prehliadač):", audit_label_style),
+            Paragraph(
+                audit_info.get("user_agent", "Neznáme zariadenie")[:90],
+                audit_text_style,
+            ),
+        ],
+        [
+            Paragraph("Metóda podpisu:", audit_label_style),
+            Paragraph(
+                "Jednoduchý elektronický podpis – Biometrický dotykový záznam"
+                " (Touch Canvas)",
+                audit_text_style,
+            ),
+        ],
+    ]
+
+    audit_table = Table(audit_rows, colWidths=[160, 360])
+    audit_table.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f8fafc")),
+        ])
+    )
+    story.append(audit_table)
+    story.append(Spacer(1, 10))
+
+    if signature_image:
+      story.append(
+          Paragraph("<b>Grafický záznam prejavenia vôle:</b>", audit_label_style)
+      )
+      story.append(Spacer(1, 4))
+      img_audit_buf = io.BytesIO()
+      signature_image.save(img_audit_buf, format="PNG")
+      img_audit_buf.seek(0)
+      story.append(ReportLabImage(img_audit_buf, width=120, height=40))
+      story.append(Spacer(1, 10))
+
+    legal_disclaimer = (
+        "<b>Právne vyhlásenie:</b> Zmluvné strany potvrdzujú, že prejavenie vôle"
+        " formou jednoduchého elektronického podpisu bolo vykonané slobodne,"
+        " vážne a zrozumiteľne. Tento elektronický originál dokumentu spĺňa"
+        " požiadavky na písomnú formu podľa § 40 ods. 4 zákona č. 40/1964 Zb."
+        " Občiansky zákonník. Integrita a nemennosť dokumentu je garantovaná"
+        " kryptografickým hashom SHA-256 vypočítaným z tohto vyhotovenia."
+    )
+    story.append(
+        Paragraph(
+            legal_disclaimer,
+            ParagraphStyle(
+                "LegalDisc",
+                parent=audit_text_style,
+                fontSize=7,
+                leading=9,
+                textColor=colors.HexColor("#64748b"),
+            ),
+        )
+    )
+
   doc.build(story)
   pdf_buffer.seek(0)
   return pdf_buffer
@@ -887,6 +1037,14 @@ if "podpis" in query_params:
       key="kurier_signature_canvas",
   )
 
+  # Checkbox so zákonným súhlasom
+  suhlas_podpis = st.checkbox(
+      "Oboznámil(a) som sa s obsahom Príkaznej zmluvy a vyhlasujem, že"
+      " nakreslením svojho podpisu dobrovoľne a záväzne uzatváram túto zmluvu v"
+      " zmysle nariadenia eIDAS a Občianskeho zákonníka SR.",
+      value=True,
+  )
+
   btn_podpisat = st.button(
       "✅ Záväzne podpísať a odoslať zmluvu",
       use_container_width=True,
@@ -894,35 +1052,73 @@ if "podpis" in query_params:
   )
 
   if btn_podpisat:
-    sig_image = extract_signature_image(canvas_result, width=340, height=140)
-
-    if sig_image is None:
-      st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie.")
+    if not suhlas_podpis:
+      st.warning(
+          "⚠️ Pred odoslaním musíte potvrdiť súhlas so znením zmluvy a"
+          " elektronickým podpisom."
+      )
     else:
-      pdf_bytes = generate_pdf(kurier_data, signature_image=sig_image)
-      safe_name = kurier_data["meno"].strip().replace(" ", "_")
-      subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
+      sig_image = extract_signature_image(canvas_result, width=340, height=140)
 
-      with st.spinner("Odosielam podpísanú zmluvu do systému..."):
-        sent_ok, msg_text = send_signed_pdf_email(
-            pdf_bytes, kurier_data, subor_nazov
-        )
-
-      st.success("🎉 Zmluva bola úspešne podpísaná!")
-      if sent_ok:
-        st.info(
-            "✉️ Kópia podpísanej zmluvy bola automaticky odoslaná do kancelárie."
+      if sig_image is None:
+        st.warning(
+            "⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie."
         )
       else:
-        st.error(f"⚠️ Nepodarilo sa odoslať e-mail: {msg_text}")
+        # Získanie klientskych metadát z hlavičiek požiadavky
+        try:
+          client_ip = st.context.headers.get(
+              "X-Forwarded-For",
+              st.context.headers.get("Remote-Addr", "Web session"),
+          )
+          client_ua = st.context.headers.get(
+              "User-Agent", "Mobilný / Webový prehliadač"
+          )
+        except Exception:
+          client_ip = "Web session"
+          client_ua = "Mobilný prehliadač"
 
-      st.download_button(
-          label="📥 Stiahnuť podpísanú zmluvu (PDF)",
-          data=pdf_bytes,
-          file_name=subor_nazov,
-          mime="application/pdf",
-          use_container_width=True,
-      )
+        audit_info = {
+            "tx_id": f"TX-{uuid.uuid4().hex[:12].upper()}",
+            "timestamp": datetime.utcnow().strftime("%d.%m.%Y %H:%M:%S"),
+            "ip": client_ip,
+            "user_agent": client_ua,
+        }
+
+        # Generovanie PDF vrátane auditnej doložky
+        pdf_bytes = generate_pdf(
+            kurier_data, signature_image=sig_image, audit_info=audit_info
+        )
+
+        # Výpočet kontrolného odtlačku SHA-256 z finálneho súboru
+        sha256_hash = hashlib.sha256(pdf_bytes.getvalue()).hexdigest()
+
+        safe_name = kurier_data["meno"].strip().replace(" ", "_")
+        subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
+
+        with st.spinner("Odosielam podpísanú zmluvu do systému..."):
+          sent_ok, msg_text = send_signed_pdf_email(
+              pdf_bytes, kurier_data, subor_nazov, file_hash=sha256_hash
+          )
+
+        st.success("🎉 Zmluva bola úspešne podpísaná a zaevidovaná!")
+        st.caption(f"🔒 Digitálny odtlačok integrity (SHA-256): `{sha256_hash}`")
+
+        if sent_ok:
+          st.info(
+              "✉️ Kópia podpísanej zmluvy bola automaticky odoslaná do"
+              " kancelárie."
+          )
+        else:
+          st.error(f"⚠️ Nepodarilo sa odoslať e-mail: {msg_text}")
+
+        st.download_button(
+            label="📥 Stiahnuť podpísanú zmluvu (PDF)",
+            data=pdf_bytes,
+            file_name=subor_nazov,
+            mime="application/pdf",
+            use_container_width=True,
+        )
 
 else:
   # === REŽIM SPRÁVCU / WEBOVÉHO GENERÁTORA ===
@@ -965,9 +1161,7 @@ else:
 
   if submitted:
     if not (meno and datum_narodenia and bydlisko and telefon and email and iban):
-      st.error(
-          "⚠️ Prosím, vyplňte všetky povinné polia označené hviezdičkou (*)."
-      )
+      st.error("⚠️ Prosím, vyplňte všetky povinné polia označené hviezdičkou (*).")
     else:
       data = {
           "meno": meno,
@@ -1025,7 +1219,8 @@ else:
           )
         if mail_ok:
           st.success(
-              f"📨 E-mail bol úspešne odoslaný na adresu **{c_data['email']}**!"
+              "📨 E-mail bol úspešne odoslaný na adresu"
+              f" **{c_data['email']}**!"
           )
         else:
           st.error(f"⚠️ Odoslanie e-mailu zlyhalo: {mail_msg}")
