@@ -1,4 +1,4 @@
-import io 
+import io
 import os
 import json
 import base64
@@ -43,7 +43,7 @@ def setup_fonts():
         return "Helvetica", "Helvetica-Bold"
 
 def get_valid_stamp_image():
-    """Overí a vráti platný objekt pečiatky v pamäti."""
+    """Automaticky načíta súbor peciatka.png z repozitára."""
     candidates = [
         "peciatka.png", "peciatka.PNG", "peciatka.jpg", 
         "peciatka.jpeg", "pečiatka.png", "podpis.png"
@@ -119,7 +119,7 @@ def extract_signature_image(canvas_result, width=340, height=140):
     return None
 
 def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
-    """Odošle podpísanú zmluvu do vašej kancelárie ako klikateľnú PDF prílohu."""
+    """Odošle podpísanú zmluvu do vašej kancelárie ako PDF prílohu."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -151,7 +151,6 @@ V prílohe nájdete hotovú obojstranne podpísanú zmluvu vo formáte PDF.
 """
         msg.attach(MIMEText(body, "plain", "utf-8"))
 
-        # Priloženie skutočného binárneho PDF
         part = MIMEBase("application", "pdf")
         pdf_bytes.seek(0)
         part.set_payload(pdf_bytes.read())
@@ -341,265 +340,4 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
             "7.3 Príkazník je povinný osobné údaje použiť len na splnenie príkazu, neposkytovať ich tretím stranám, nevytvárať databázy a po doručení ich ďalej neuchovávať.",
             "7.4 Príkazník plne zodpovedá za akúkoľvek škodu alebo pokuty uložené dozornými orgánmi v dôsledku jeho neoprávneného nakladania s osobnými údajmi.",
         ]),
-        ("Článok VIII. – Zodpovednosť za škodu a započítanie pohľadávok", [
-            "8.1 Príkazník zodpovedá za škodu spôsobenú zavineným porušením svojich povinností vyplývajúcich z tejto zmluvy, pravidiel platformy alebo právnych predpisov.",
-            "8.2 Príkazník zodpovedá za škodu na tovare a škody na majetku tretích osôb spôsobené prevádzkou svojho dopravného prostriedku.",
-            "8.3 Príkazca nezodpovedá za úraz ani škodu vzniknutú pri výkone činnosti Príkazníka.",
-            "8.4 Príkazník je povinný bezodkladne oznámiť každú škodovú udalosť, nehodu alebo poškodenie tovaru.",
-            "8.5 Jednostranné započítanie: Príkazník výslovne a neodvolateľne udeľuje Príkazcovi súhlas na jednostranné započítanie finančnej škody, strhnutých platieb, sankcií platformy z dôvodu zavinenia Príkazníka a neuhradených záväzkov priamo voči odmene Príkazníka."
-        ]),
-        ("Článok IX. – Pravidlá digitálnej pracovnej platformy", [
-            "9.1 Výkon platformovej práce je technicky zabezpečovaný prostredníctvom digitálnej platformy BOLT FOOD.",
-            "9.2 Príkazník sa zaväzuje dodržiavať obchodné podmienky, zásady používania aplikácie a kódex správania kuriéra BOLT FOOD.",
-            "9.3 Príkazca nie je oprávnený meniť pravidlá platformy ani určovať pracovný čas. Algoritmické prideľovanie sa nepovažuje za pokyn Príkazcu.",
-            "9.4 Prístup k aplikácii môže podliehať technickým a bezpečnostným podmienkam platformy."
-        ]),
-        ("Článok X. – Doba trvania a ukončenie zmluvy", [
-            "10.1 Táto zmluva nadobúda platnosť a účinnosť dňom podpisu oboma zmluvnými stranami.",
-            "10.2 Zmluva sa uzatvára na dobu určitú do 31. 12. 2026, pokiaľ sa zmluvné strany nedohodnú inak.",
-            "10.3 Výpovedná lehota je 15 (pätnásť) kalendárnych dní a začína plynúť dňom nasledujúcim po doručení písomnej výpovede (aj e-mailom).",
-            "10.4 Zmluvné strany môžu zmluvu ukončiť kedykoľvek dohodou.",
-            "10.5 Príkazca môže od zmluvy odstúpiť okamžite pri zablokovaní profilu kuriéra zo strany BOLT FOOD, závažnom porušení predpisov alebo poškodení dobrého mena.",
-            "10.6 Zánikom zmluvy nie sú dotknuté vzájomné finančné nároky vzniknuté pred jej zánikom."
-        ]),
-        ("Článok XI. – Osobitné ustanovenia o samostatnom charaktere činnosti", [
-            "11.1 Príkazník vykonáva činnosť samostatne a na vlastné podnikateľské alebo ekonomické riziko.",
-            "11.2 Príkazník si sám organizuje činnosť, Príkazca neurčuje pracovné zmeny, čas ani trasovanie.",
-            "11.3 Príkazník nemá nárok na minimálny počet objednávok ani minimálny príjem.",
-            "11.4 Príkazník nevystupuje vo vzťahu k tretím stranám ako zamestnanec Príkazcu.",
-            "11.5 Príkazník je oprávnený vykonávať inú zárobkovú činnosť bez obmedzenia.",
-            "11.6 Pre právne posúdenie vzťahu je rozhodujúci skutočný výkon platformovej práce."
-        ]),
-        ("Článok XII. – Záverečné ustanovenia", [
-            "12.1 Právne vzťahy neupravené touto zmluvou sa spravujú Občianskym zákonníkom SR.",
-            "12.2 Zmeny a doplnenia je možné vykonať len vo forme písomných dodatkov.",
-            "12.3 Neplatnosť jednotlivého ustanovenia nemá vplyv na platnosť ostatných ustanovení.",
-            "12.4 Zmluvné strany zmluvu pred podpisom prečítali a na znak súhlasu ju slobodne podpisujú.",
-            "12.5 Zmluva je vyhotovená v dvoch rovnopisoch. Za rovnopis sa považuje aj elektronické vyhotovenie."
-        ])
-    ]
-
-    for title, pars in articles:
-        story.append(Paragraph(title, heading_style))
-        for p in pars:
-            story.append(Paragraph(p, body_style))
-
-    story.append(Spacer(1, 8))
-    datum_podpisu = data.get("datum_podpisu") or datetime.now().strftime("%d. %m. %Y")
-    story.append(Paragraph(f"V Trnave, dňa {datum_podpisu}", body_style))
-    story.append(Spacer(1, 8))
-
-    prikazca_cell = []
-    prikazca_cell.append(Paragraph("<b>Príkazca:</b><br/>TRANSOCEANIC s. r. o.", party_style))
-    
-    stamp_stream = get_valid_stamp_image()
-    if stamp_stream:
-        prikazca_cell.append(Spacer(1, 2))
-        prikazca_cell.append(ReportLabImage(stamp_stream, width=125, height=50))
-        prikazca_cell.append(Paragraph("____________________________________<br/>Denis Beňa – konateľ", party_style))
-    else:
-        prikazca_cell.append(Paragraph("<br/><br/><br/>____________________________________<br/>Denis Beňa – konateľ", party_style))
-
-    prikaznik_signature_cell = []
-    prikaznik_signature_cell.append(Paragraph(f"<b>Príkazník:</b><br/>{data['meno']}", party_style))
-    
-    if signature_image:
-        img_buffer = io.BytesIO()
-        signature_image.save(img_buffer, format="PNG")
-        img_buffer.seek(0)
-        prikaznik_signature_cell.append(Spacer(1, 4))
-        prikaznik_signature_cell.append(ReportLabImage(img_buffer, width=130, height=45))
-        prikaznik_signature_cell.append(Paragraph(f"____________________________________<br/>{data['meno']}", party_style))
-    else:
-        prikaznik_signature_cell.append(Paragraph(f"<br/><br/><br/>____________________________________<br/>{data['meno']}", party_style))
-
-    podpisy_table = Table([[prikazca_cell, prikaznik_signature_cell]], colWidths=[260, 260])
-    podpisy_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-    ]))
-    
-    story.append(KeepTogether(podpisy_table))
-
-    doc.build(story)
-    pdf_buffer.seek(0)
-    return pdf_buffer
-
-# --- Spracovanie URL parametrov ---
-query_params = st.query_params
-
-if "podpis" in query_params:
-    try:
-        raw_b64 = query_params["podpis"]
-        json_data = base64.b64decode(raw_b64.encode('utf-8')).decode('utf-8')
-        kurier_data = json.loads(json_data)
-    except Exception:
-        st.error("⚠️ Neplatný alebo poškodený podpisový odkaz.")
-        st.stop()
-
-    st.title("✍️ Podpis Príkaznej zmluvy")
-    st.info(f"Vážený/á **{kurier_data['meno']}**, skontrolujte si prosím svoje údaje a podpíšte zmluvu prstom priamo na displeji nižšie.")
-
-    with st.expander("👁️ Kliknite sem pre kontrolu vašich údajov", expanded=True):
-        st.write(f"**Meno a priezvisko:** {kurier_data['meno']}")
-        st.write(f"**Dátum narodenia:** {kurier_data['datum_narodenia']}")
-        if kurier_data.get('rc'):
-            st.write(f"**Rodné číslo:** {kurier_data['rc']}")
-        st.write(f"**Trvalé bydlisko:** {kurier_data['bydlisko']}")
-        st.write(f"**Telefón:** {kurier_data['telefon']}")
-        st.write(f"**E-mail:** {kurier_data['email']}")
-        st.write(f"**IBAN:** {kurier_data['iban']}")
-
-    st.subheader("Váš podpis (nakreslite prstom do rámika):")
-    
-    canvas_result = st_canvas(
-        stroke_width=3,
-        stroke_color="#000000",
-        background_color="#f8f9fa",
-        height=140,
-        width=340,
-        drawing_mode="freedraw",
-        update_streamlit=True,
-        key="kurier_signature_canvas",
-    )
-
-    btn_podpisat = st.button("✅ Záväzne podpísať a odoslať zmluvu", use_container_width=True, type="primary")
-
-    if btn_podpisat:
-        sig_image = extract_signature_image(canvas_result, width=340, height=140)
-
-        if sig_image is None:
-            st.warning("⚠️ Prosím, najskôr sa podpíšte prstom do sivého rámika vyššie.")
-        else:
-            pdf_bytes = generate_pdf(kurier_data, signature_image=sig_image)
-            safe_name = kurier_data['meno'].strip().replace(" ", "_")
-            subor_nazov = f"Prikazna_zmluva_TRANSOCEANIC_{safe_name}_podpisana.pdf"
-
-            with st.spinner("Odosielam podpísanú zmluvu do systému..."):
-                sent_ok, msg_text = send_signed_pdf_email(pdf_bytes, kurier_data, subor_nazov)
-
-            st.success("🎉 Zmluva bola úspešne podpísaná!")
-            if sent_ok:
-                st.info("✉️ Kópia podpísanej zmluvy bola automaticky odoslaná do kancelárie.")
-            else:
-                st.error(f"⚠️ Nepodarilo sa odoslať e-mail: {msg_text}")
-
-            st.download_button(
-                label="📥 Stiahnuť podpísanú zmluvu (PDF)",
-                data=pdf_bytes,
-                file_name=subor_nazov,
-                mime="application/pdf",
-                use_container_width=True
-            )
-
-else:
-    # === REŽIM SPRÁVCU ===
-    st.title("📄 Príprava zmluvy na podpis")
-    st.caption("TRANSOCEANIC s. r. o. / BOLT FOOD")
-
-    stamp_ok = get_valid_stamp_image() is not None
-    if stamp_ok:
-        st.success("✅ Pečiatka a podpis konateľa sú aktívne a pripravené na vkladanie do PDF.")
-    else:
-        st.warning("⚠️ Pečiatka Príkazcu zatiaľ nie je nahraná.")
-
-    with st.expander("🛠️ Nahrať / Aktualizovať pečiatku spoločnosti"):
-        uploaded_stamp = st.file_uploader("Vyberte obrázok pečiatky (PNG alebo JPG)", type=["png", "jpg", "jpeg"])
-        if uploaded_stamp is not None:
-            with open("peciatka.png", "wb") as f:
-                f.write(uploaded_stamp.getbuffer())
-            st.success("🎉 Pečiatka bola úspešne uložená!")
-            st.rerun()
-
-    if "pripravena_zmluva" not in st.session_state:
-        st.session_state.pripravena_zmluva = None
-
-    with st.form("contract_form"):
-        st.subheader("Údaje nového kuriéra")
-        meno = st.text_input("Meno a priezvisko *", placeholder="napr. Artem Diachuk")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            datum_narodenia = st.text_input("Dátum narodenia *", placeholder="DD. MM. RRRR")
-        with col2:
-            rc = st.text_input("Rodné číslo (voliteľné)", placeholder="napr. 030930/9418")
-
-        bydlisko = st.text_input("Trvalé bydlisko *", placeholder="Ulica, PSČ, Mesto")
-
-        col3, col4 = st.columns(2)
-        with col3:
-            telefon = st.text_input("Telefónne číslo *", placeholder="+421 900 000 000")
-        with col4:
-            email = st.text_input("E-mail *", placeholder="kurier@email.sk")
-
-        col5, col6 = st.columns(2)
-        with col5:
-            iban = st.text_input("IBAN (Číslo účtu) *", placeholder="SK00 0000 0000 0000 0000 0000")
-        with col6:
-            ico = st.text_input("IČO / DIČ (ak existuje)", placeholder="voliteľné")
-
-        datum_dnes = datetime.now().strftime("%d. %m. %Y")
-        datum_podpisu = st.text_input("Dátum podpisu zmluvy", value=datum_dnes)
-
-        submitted = st.form_submit_button("🔗 Pripraviť zmluvu na odoslanie", use_container_width=True)
-
-    if submitted:
-        if not (meno and datum_narodenia and bydlisko and telefon and email and iban):
-            st.error("⚠️ Prosím, vyplňte všetky povinné polia označené hviezdičkou (*).")
-        else:
-            data = {
-                "meno": meno,
-                "datum_narodenia": datum_narodenia,
-                "rc": rc,
-                "bydlisko": bydlisko,
-                "telefon": telefon,
-                "email": email,
-                "iban": iban,
-                "ico": ico,
-                "datum_podpisu": datum_podpisu
-            }
-            json_str = json.dumps(data)
-            b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-            current_url = "https://zmluvy-transoceanic.streamlit.app"
-            podpis_url = f"{current_url}/?podpis={b64_str}"
-
-            st.session_state.pripravena_zmluva = {
-                "data": data,
-                "url": podpis_url
-            }
-
-    if st.session_state.pripravena_zmluva:
-        zmluva_info = st.session_state.pripravena_zmluva
-        c_data = zmluva_info["data"]
-        p_url = zmluva_info["url"]
-
-        st.success(f"✅ Zmluva pre kuriéra **{c_data['meno']}** je pripravená!")
-        st.text_input("Priamy odkaz na podpis:", value=p_url)
-
-        st.subheader("Vyberte spôsob doručenia kuriérovi:")
-        col_btn1, col_btn2 = st.columns(2)
-
-        with col_btn1:
-            clean_phone = c_data["telefon"].replace(" ", "").replace("+", "")
-            wa_text = urllib.parse.quote(
-                f"Dobrý deň {c_data['meno']}, posielame Vám príkaznú zmluvu na podpis. Otvorte prosím tento odkaz na mobile, skontrolujte údaje a podpíšte prstom na displeji: {p_url}"
-            )
-            wa_link = f"https://wa.me/{clean_phone}?text={wa_text}"
-            st.markdown(
-                f'<a href="{wa_link}" target="_blank" style="display:block;padding:12px;background-color:#25D366;color:white;text-decoration:none;border-radius:6px;font-weight:bold;text-align:center;">💬 Odoslať cez WhatsApp</a>',
-                unsafe_allow_html=True
-            )
-
-        with col_btn2:
-            if st.button(f"✉️ Odoslať na e-mail ({c_data['email']})", use_container_width=True, type="primary"):
-                with st.spinner("Odosielam e-mail kuriérovi..."):
-                    mail_ok, mail_msg = send_link_to_courier_email(c_data["email"], c_data["meno"], p_url)
-                if mail_ok:
-                    st.success(f"📨 E-mail bol úspešne odoslaný na adresu **{c_data['email']}**!")
-                else:
-                    st.error(f"⚠️ Odoslanie e-mailu zlyhalo: {mail_msg}")
-
-        st.divider()
-        ciste_pdf = generate_pdf(c_data)
-        st.download_button("📄 Stiahnuť vygenerované nepodpísané PDF", data=ciste_pdf, file_name=f"Zmluva_{c_data['meno']}.pdf")
+        ("Článok VIII. – Zodpovednosť
