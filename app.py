@@ -43,7 +43,6 @@ def setup_fonts():
         return "Helvetica", "Helvetica-Bold"
 
 def get_valid_stamp_image():
-    """Automaticky načíta súbor peciatka.png z repozitára."""
     candidates = [
         "peciatka.png", "peciatka.PNG", "peciatka.jpg", 
         "peciatka.jpeg", "pečiatka.png", "podpis.png"
@@ -119,7 +118,6 @@ def extract_signature_image(canvas_result, width=340, height=140):
     return None
 
 def send_signed_pdf_email(pdf_bytes, kurier_data, file_name):
-    """Odošle podpísanú zmluvu do vašej kancelárie ako PDF prílohu."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -179,7 +177,6 @@ V prílohe nájdete hotovú obojstranne podpísanú zmluvu vo formáte PDF.
         return False, str(e)
 
 def send_link_to_courier_email(kurier_email, kurier_meno, link):
-    """Odošle odkaz na podpis priamo na e-mail kuriéra."""
     if "email" not in st.secrets:
         return False, "E-mailové nastavenia (secrets) nie sú zadané."
 
@@ -323,21 +320,4 @@ IBAN: <b>{data['iban']}</b>{ico_text}<br/>
             "5.1 Príkazníkovi patrí odmena za riadne vykonané jednotlivé príkazy a doručené objednávky. Výška hrubej odmeny sa určuje podľa skutočne realizovaných objednávok evidovaných platformou BOLT FOOD podľa jej aktuálne platného sadzobníka.",
             "5.2 Výška provízie: Za registráciu, sprostredkovanie prístupu k platforme BOLT FOOD, technickú, prevádzkovú a zúčtovaciu podporu patrí Príkazcovi provízia (servisný poplatok) vo výške 15 % (slovom: pätnásť percent) z celkového zárobku (hrubého obratu) vygenerovaného Príkazníkom na platforme za príslušné zúčtovacie obdobie.",
             "5.3 Výpočet odmeny: Konečná odmena vyplácaná Príkazníkovi predstavuje celkový zárobok vygenerovaný Príkazníkom evidovaný platformou BOLT FOOD, znížený o dohodnutú províziu Príkazcu vo výške 15 % a prípadné oprávnené zápočty škôd alebo zrážok.",
-            "5.4 Splatnosť: Zúčtovacím obdobím je spravidla jeden kalendárny týždeň (pondelok až nedeľa). Odmena po odpočítaní 15 % provízie je splatná prevodom na bankový účet Príkazníka najneskôr do 5 (piatich) pracovných dní odo dňa doručenia zúčtovania a finančných prostriedkov od BOLT FOOD Príkazcovi.",
-            "5.5 Príkazníkovi nevzniká nárok na odmenu za čas, počas ktorého nie je aktívny alebo nevykonáva konkrétny prijatý príkaz. Nemá garantovaný minimálny príjem ani minimálny počet objednávok.",
-            "5.6 Odmena podľa tejto zmluvy predstavuje odmenu za vykonanie zákaziek a nie mzdu, plat ani odmenu za odpracovaný čas.",
-            "5.7 Pokiaľ nie je písomne dohodnuté inak, vyplatená odmena zahŕňa všetky bežné náklady Príkazníka spojené s výkonom činnosti."
-        ]),
-        ("Článok VI. – Daňové a odvodové povinnosti", [
-            "6.1 Príkazník berie na vedomie, že odmena podľa tejto zmluvy predstavuje príjem z činnosti vykonávanej na základe občianskoprávneho zmluvného vzťahu.",
-            "6.2 Príkazník je povinný splniť svoje daňové a prípadné odvodové povinnosti vyplývajúce z platných právnych predpisov SR v závislosti od svojej daňovej a odvodovej rezidencie a právneho postavenia.",
-            "6.3 Príkazník je povinný poskytnúť Príkazcovi bezodkladne všetku súčinnosť, doklady a pravdivé vyhlásenia potrebné na splnenie prípadných zákonných povinností.",
-            "6.4 Ustanovenia tohto článku nemenia právnu povahu tejto zmluvy ani nezakladajú pracovnoprávny vzťah medzi zmluvnými stranami."
-        ]),
-        ("Článok VII. – Ochrana osobných údajov (GDPR)", [
-            "7.1 Zmluvné strany sa zaväzujú postupovať v súlade s Nariadením GDPR a zákonom č. 18/2018 Z. z.",
-            "7.2 Príkazník pri plnení príkazu prichádza do styku s osobnými údajmi zákazníkov a partnerov platformy. Zaväzuje sa ich spracúvať výlučne v nevyhnutnom rozsahu za účelom doručenia danej objednávky.",
-            "7.3 Príkazník je povinný osobné údaje použiť len na splnenie príkazu, neposkytovať ich tretím stranám, nevytvárať databázy a po doručení ich ďalej neuchovávať.",
-            "7.4 Príkazník plne zodpovedá za akúkoľvek škodu alebo pokuty uložené dozornými orgánmi v dôsledku jeho neoprávneného nakladania s osobnými údajmi.",
-        ]),
-        ("Článok VIII. – Zodpovednosť
+            "5.4 Splatnosť: Zúčtovacím obdobím je spravidla jeden kalendárny týždeň (pondelok až nedeľa). Odmena po odpočítaní 15
